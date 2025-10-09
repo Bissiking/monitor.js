@@ -1,12 +1,10 @@
 // monitor.js
-// Petit script de supervision des services avec notification Discord
+// Petit script de supervision des services avec notification Discord (Docker-friendly)
 
-import fetch from "node-fetch";
-import dotenv from "dotenv";
-dotenv.config();
+const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
 
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK;
-if (!WEBHOOK_URL) throw new Error("❌ DISCORD_WEBHOOK manquant dans le .env");
+if (!WEBHOOK_URL) throw new Error("❌ Variable d'environnement DISCORD_WEBHOOK manquante");
 
 const SERVICES = [
   { name: "Site principal", url: "https://mhemery.fr" },
@@ -14,12 +12,15 @@ const SERVICES = [
   { name: "Sonora Dev", url: "https://sonora-dev.mhemery.fr/health" },
 ];
 
-// Mémoire locale pour éviter le spam
 const lastStatus = {};
 
 async function checkService(service) {
   try {
-    const res = await fetch(service.url, { method: "GET", timeout: 8000 });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(service.url, { signal: controller.signal });
+    clearTimeout(timeout);
+
     const ok = res.status >= 200 && res.status < 300;
 
     if (!ok && lastStatus[service.url] !== "DOWN") {
@@ -44,44 +45,41 @@ async function checkService(service) {
 }
 
 async function sendDiscordAlert(service, status) {
-  const body = {
-    embeds: [
-      {
-        title: `🚨 Service DOWN : ${service.name}`,
-        description: `**URL :** ${service.url}\n**Code :** ${status}`,
-        color: 0xff0000,
-        timestamp: new Date(),
-      },
-    ],
-  };
   await fetch(WEBHOOK_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      embeds: [
+        {
+          title: `🚨 Service DOWN : ${service.name}`,
+          description: `**URL :** ${service.url}\n**Code :** ${status}`,
+          color: 0xff0000,
+          timestamp: new Date(),
+        },
+      ],
+    }),
   });
 }
 
 async function sendDiscordRecovery(service) {
-  const body = {
-    embeds: [
-      {
-        title: `✅ Service rétabli : ${service.name}`,
-        description: `**URL :** ${service.url}`,
-        color: 0x00ff00,
-        timestamp: new Date(),
-      },
-    ],
-  };
   await fetch(WEBHOOK_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      embeds: [
+        {
+          title: `✅ Service rétabli : ${service.name}`,
+          description: `**URL :** ${service.url}`,
+          color: 0x00ff00,
+          timestamp: new Date(),
+        },
+      ],
+    }),
   });
 }
 
-// Boucle principale
 async function main() {
   for (const s of SERVICES) await checkService(s);
 }
 main();
-setInterval(main, 120 * 1000); // Vérifie toutes les 120s
+setInterval(main, 120 * 1000); // Vérifie toutes les 2 minutes
