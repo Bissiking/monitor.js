@@ -8,8 +8,7 @@ if (!WEBHOOK_URL) throw new Error("❌ Variable d'environnement DISCORD_WEBHOOK 
 
 const SERVICES = [
   { name: "Site principal", url: "https://mhemery.fr" },
-  { name: "Kidouille", url: "https://kidouille.mhemery.fr" },
-  { name: "Sonora Dev", url: "https://sonora-dev.mhemery.fr/health" },
+  { name: "Sonora", url: "https://sonora.mhemery.fr/health" },
 ];
 
 const lastStatus = {};
