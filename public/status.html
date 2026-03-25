@@ -1,0 +1,263 @@
+﻿<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Status Monitor</title>
+    <style>
+      :root {
+        --bg: #f7f7f3;
+        --panel: #ffffff;
+        --text: #1f2328;
+        --muted: #5f6b7a;
+        --up: #17803d;
+        --down: #cc2f2f;
+        --warn: #d28a00;
+        --border: #d8dee4;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at top right, #eaf4ff, var(--bg) 45%);
+      }
+
+      .container {
+        max-width: 1100px;
+        margin: 24px auto;
+        padding: 0 16px 32px;
+      }
+
+      .header {
+        margin-bottom: 18px;
+      }
+
+      h1 {
+        margin: 0;
+      }
+
+      .meta {
+        margin-top: 8px;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        gap: 14px;
+      }
+
+      .services {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      }
+
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+      }
+
+      .card h3 {
+        margin: 0 0 8px;
+        font-size: 1rem;
+      }
+
+      .status {
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .status.up {
+        color: var(--up);
+      }
+
+      .status.down {
+        color: var(--down);
+      }
+
+      .status.unknown {
+        color: var(--warn);
+      }
+
+      .small {
+        color: var(--muted);
+        font-size: 0.9rem;
+        margin-top: 6px;
+      }
+
+      .chart-wrap {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 16px;
+      }
+
+      .error {
+        color: #b91c1c;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>Status Monitor</h1>
+        <div class="meta" id="meta">Chargement...</div>
+      </div>
+
+      <div class="grid services" id="services"></div>
+
+      <div class="chart-wrap" style="margin-top: 16px;">
+        <h3 style="margin-top: 0">Latence (ms)</h3>
+        <canvas id="latencyChart" height="110"></canvas>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+      const COLORS = ["#0065d1", "#009f6b", "#d97706", "#c1121f", "#6b21a8", "#0f766e"];
+      let chart;
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function formatDate(value) {
+        if (!value) return "-";
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return value;
+        return d.toLocaleString();
+      }
+
+      function renderServices(statusData) {
+        const root = document.getElementById("services");
+        const services = Array.isArray(statusData.services) ? statusData.services : [];
+
+        if (services.length === 0) {
+          root.innerHTML = '<div class="card error">Aucune donnée de statut pour le moment.</div>';
+          return;
+        }
+
+        root.innerHTML = services
+          .map((service) => {
+            const status = service.status || "UNKNOWN";
+            const cssStatus = status.toLowerCase();
+            const code = service.lastCode === null || service.lastCode === undefined ? "-" : service.lastCode;
+            const latency = service.lastLatencyMs === null || service.lastLatencyMs === undefined ? "-" : `${service.lastLatencyMs} ms`;
+            const error = service.lastError ? `<div class="small">Erreur: ${escapeHtml(service.lastError)}</div>` : "";
+
+            return `
+              <article class="card">
+                <h3>${escapeHtml(service.name)}</h3>
+                <div class="status ${cssStatus}">${escapeHtml(status)}</div>
+                <div class="small">HTTP: ${escapeHtml(code)}</div>
+                <div class="small">Latence: ${escapeHtml(latency)}</div>
+                <div class="small">Dernier check: ${escapeHtml(formatDate(service.lastCheckedAt))}</div>
+                ${error}
+              </article>
+            `;
+          })
+          .join("");
+      }
+
+      function renderChart(historyData) {
+        const services = Array.isArray(historyData.services) ? historyData.services : [];
+
+        if (services.length === 0) {
+          if (chart) chart.destroy();
+          return;
+        }
+
+        const datasets = services.map((service, index) => {
+          const points = Array.isArray(service.points) ? service.points : [];
+          return {
+            label: service.name,
+            data: points.map((p) => p.latencyMs),
+            borderColor: COLORS[index % COLORS.length],
+            backgroundColor: COLORS[index % COLORS.length],
+            borderWidth: 2,
+            fill: false,
+            spanGaps: true,
+            pointRadius: 2,
+            pointHoverRadius: 4,
+          };
+        });
+
+        const labels = (() => {
+          const first = services.find((s) => Array.isArray(s.points) && s.points.length > 0);
+          if (!first) return [];
+          return first.points.map((p) => formatDate(p.ts));
+        })();
+
+        const ctx = document.getElementById("latencyChart");
+        if (chart) chart.destroy();
+        chart = new Chart(ctx, {
+          type: "line",
+          data: { labels, datasets },
+          options: {
+            animation: false,
+            responsive: true,
+            scales: {
+              x: {
+                ticks: { maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+              },
+              y: {
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: "ms",
+                },
+              },
+            },
+            plugins: {
+              legend: {
+                position: "bottom",
+              },
+            },
+          },
+        });
+      }
+
+      async function loadData() {
+        const [statusRes, historyRes] = await Promise.all([
+          fetch("/api/status", { cache: "no-store" }),
+          fetch("/api/history", { cache: "no-store" }),
+        ]);
+
+        if (!statusRes.ok || !historyRes.ok) {
+          throw new Error("API indisponible");
+        }
+
+        const statusData = await statusRes.json();
+        const historyData = await historyRes.json();
+
+        renderServices(statusData);
+        renderChart(historyData);
+
+        const updatedAt = statusData.updatedAt ? formatDate(statusData.updatedAt) : "-";
+        document.getElementById("meta").textContent = `Dernière mise à jour: ${updatedAt}`;
+      }
+
+      async function refresh() {
+        try {
+          await loadData();
+        } catch (err) {
+          document.getElementById("meta").innerHTML = `<span class="error">${escapeHtml(err.message)}</span>`;
+        }
+      }
+
+      refresh();
+      setInterval(refresh, 15000);
+    </script>
+  </body>
+</html>
