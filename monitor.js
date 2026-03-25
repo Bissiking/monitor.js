@@ -58,6 +58,11 @@ const INTERVAL_MS = Number.parseInt(process.env.MONITOR_INTERVAL_MS || "120000",
 const REQUEST_TIMEOUT_MS = Number.parseInt(process.env.MONITOR_TIMEOUT_MS || "8000", 10);
 const MAX_CONSECUTIVE_FAILURES = Number.parseInt(process.env.MONITOR_FAIL_THRESHOLD || "3", 10);
 const HISTORY_LIMIT = Number.parseInt(process.env.MONITOR_HISTORY_LIMIT || "720", 10);
+const HISTORY_MAX_BYTES = Number.parseInt(process.env.MONITOR_HISTORY_MAX_BYTES || "5242880", 10);
+const HISTORY_MIN_POINTS_PER_SERVICE = Number.parseInt(
+  process.env.MONITOR_HISTORY_MIN_POINTS || "120",
+  10
+);
 const ALERT_ON_STARTUP_DOWN =
   String(process.env.MONITOR_ALERT_ON_STARTUP_DOWN || "true").toLowerCase() === "true";
 
@@ -202,6 +207,37 @@ async function writeJson(filePath, data) {
   await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
 }
 
+function jsonSizeBytes(data) {
+  return Buffer.byteLength(JSON.stringify(data), "utf8");
+}
+
+function clampHistoryPayloadToMaxBytes(payload) {
+  if (!Number.isFinite(HISTORY_MAX_BYTES) || HISTORY_MAX_BYTES <= 0) {
+    return payload;
+  }
+
+  // Trim oldest points across services until JSON fits the configured max size.
+  while (jsonSizeBytes(payload) > HISTORY_MAX_BYTES) {
+    let trimmed = false;
+
+    for (const service of payload.services) {
+      if (!Array.isArray(service.points)) {
+        continue;
+      }
+      if (service.points.length > HISTORY_MIN_POINTS_PER_SERVICE) {
+        service.points.shift();
+        trimmed = true;
+      }
+    }
+
+    if (!trimmed) {
+      break;
+    }
+  }
+
+  return payload;
+}
+
 async function persistJson() {
   const statusPayload = {
     updatedAt: nowIso(),
@@ -227,12 +263,18 @@ async function persistJson() {
   const historyPayload = {
     updatedAt: statusPayload.updatedAt,
     limitPerService: HISTORY_LIMIT,
+    maxBytes: HISTORY_MAX_BYTES,
     services: SERVICES.map((service) => ({
       name: service.name,
       url: service.url,
       points: historyByUrl.get(service.url) || [],
     })),
   };
+
+  clampHistoryPayloadToMaxBytes(historyPayload);
+  for (const service of historyPayload.services) {
+    historyByUrl.set(service.url, service.points);
+  }
 
   await Promise.all([writeJson(STATUS_FILE, statusPayload), writeJson(HISTORY_FILE, historyPayload)]);
 }
