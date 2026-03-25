@@ -56,7 +56,7 @@ const fetchFn = globalThis.fetch
 
 const INTERVAL_MS = Number.parseInt(process.env.MONITOR_INTERVAL_MS || "120000", 10);
 const REQUEST_TIMEOUT_MS = Number.parseInt(process.env.MONITOR_TIMEOUT_MS || "8000", 10);
-const MAX_CONSECUTIVE_FAILURES = Number.parseInt(process.env.MONITOR_FAIL_THRESHOLD || "1", 10);
+const MAX_CONSECUTIVE_FAILURES = Number.parseInt(process.env.MONITOR_FAIL_THRESHOLD || "3", 10);
 const HISTORY_LIMIT = Number.parseInt(process.env.MONITOR_HISTORY_LIMIT || "720", 10);
 const ALERT_ON_STARTUP_DOWN =
   String(process.env.MONITOR_ALERT_ON_STARTUP_DOWN || "true").toLowerCase() === "true";
@@ -497,3 +497,4 @@ process.on("SIGINT", () => requestStop("SIGINT"));
 }).finally(async () => {
   await releaseLock();
 });
+
